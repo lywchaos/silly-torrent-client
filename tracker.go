@@ -67,6 +67,8 @@ func RequestTracker(torrent *TorrentFile, peerID [20]byte, port uint16) (Tracker
 	if err != nil {
 		log.Println(err)
 		return TrackerResponse{}, err
+	} else if len(res.Failure) != 0 {
+		log.Fatal(res.Failure)
 	}
 	return res, nil
 }
