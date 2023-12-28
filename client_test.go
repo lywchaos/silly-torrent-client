@@ -12,16 +12,10 @@ func TestHandshake(t *testing.T) {
 	all_peers, _ := GetAllPeers(&tr)
 
 	for _, peer := range all_peers {
-		client, err := NewClient(&tf, [20]byte{}, peer)
+		_, err := NewClient(&tf, [20]byte{}, peer)
 		if err != nil {
 			log.Println(err)
 			continue
 		}
-		peer_id, err := client.Handshake()
-		if err != nil {
-			log.Println(err)
-			continue
-		}
-		log.Printf("Successfully complete handshake with %s, which has peer_id %s", peer.String(), (peer_id[:]))
 	}
 }

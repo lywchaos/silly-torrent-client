@@ -2,12 +2,81 @@ package main
 
 import (
 	"bytes"
+	"encoding/binary"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"net"
 	"time"
 )
+
+type Message_ID byte
+
+const (
+	CHOKE          Message_ID = 0
+	UNCHOKE        Message_ID = 1
+	INTERESTED     Message_ID = 2
+	NOT_INTERESTED Message_ID = 3
+	HAVE           Message_ID = 4
+	BITFIELD       Message_ID = 5
+	REQUEST        Message_ID = 6
+	PIECE          Message_ID = 7
+	CANCLE         Message_ID = 8
+)
+
+type Message struct {
+	ID      Message_ID
+	Payload []byte
+}
+
+func (m *Message) name() string {
+	switch m.ID {
+	case CHOKE:
+		return "CHOKE"
+	case UNCHOKE:
+		return "UNCHOKE"
+	case INTERESTED:
+		return "INTERESTED"
+	case NOT_INTERESTED:
+		return "NOT_INTERESTED"
+	case HAVE:
+		return "HAVE"
+	case BITFIELD:
+		return "BITFIELD"
+	case REQUEST:
+		return "REQUEST"
+	case PIECE:
+		return "PIECE"
+	case CANCLE:
+		return "CANCLE"
+	default:
+		return "UNKNOWN"
+	}
+}
+
+func readMessage(conn net.Conn) (*Message, error) {
+	length_bytes := make([]byte, 4) // all later integer after handshake (not exactly) are encoded as four bytes big-endian
+	_, err := io.ReadFull(conn, length_bytes)
+	if err != nil {
+		return nil, err
+	}
+	length := binary.BigEndian.Uint32(length_bytes) // four bytes, hence uint32
+
+	if length == 0 { // keepalive
+		return nil, nil
+	}
+
+	message := make([]byte, length)
+	_, err = io.ReadFull(conn, message)
+	if err != nil {
+		return nil, err
+	}
+	return &Message{
+		ID:      Message_ID(message[0]),
+		Payload: message[1:],
+	}, nil
+}
 
 type Client struct {
 	Conn       net.Conn
@@ -15,23 +84,42 @@ type Client struct {
 	Interested bool
 	Torrent    *TorrentFile
 	PeerID     [20]byte
+	Bitfield   []byte
 }
 
-func NewClient(tf *TorrentFile, id [20]byte, peer Peer) (*Client, error) {
+func NewClient(tf *TorrentFile, id [20]byte, peer Peer) (*Client, error) { // communicate with a single peer
 	conn, err := net.DialTimeout("tcp", peer.String(), 15*time.Duration(time.Second))
 	if err != nil {
 		return nil, err
 	}
-	return &Client{
+	_client := &Client{
 		Conn:       conn,
 		Choked:     true,
 		Interested: false,
 		Torrent:    tf,
 		PeerID:     id,
-	}, nil
+		Bitfield:   make([]byte, 0),
+	}
+
+	_, err = _client.handshake()
+	if err != nil {
+		return nil, err
+	}
+
+	message, err := readMessage(_client.Conn)
+	if err != nil {
+		return nil, err
+	}
+
+	if message.ID != BITFIELD {
+		return nil, fmt.Errorf("expected BITFIELD as first message, got %s", message.name()) // vscode said that should prefer fmt.Errorf over errors.New(fmt.Sprintf)
+	}
+	_client.Bitfield = append(_client.Bitfield, message.Payload...) // unpackage in golang
+
+	return _client, nil
 }
 
-func (c *Client) Handshake() ([]byte, error) {
+func (c *Client) handshake() ([]byte, error) {
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
 	// timeout
 	err := c.Conn.SetDeadline(time.Now().Add(15 * time.Second))
@@ -85,5 +173,6 @@ func (c *Client) Handshake() ([]byte, error) {
 	peer_id := make([]byte, 20)
 	_ = copy(peer_id, res[len(pstr)+28:])
 
+	log.Printf("Successfully complete handshake with %s", (peer_id[:]))
 	return peer_id, nil
 }
