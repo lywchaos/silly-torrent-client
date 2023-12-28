@@ -28,12 +28,24 @@ type Peer struct {
 	Port uint16 `bencode:"port"`
 }
 
-func RequestTracker(torrent *TorrentFile, peerID [20]byte, port uint16) (TrackerResponse, error) {
+func (p *Peer) String() string {
+	return net.JoinHostPort(p.IP.String(), strconv.Itoa(int(p.Port)))
+}
+
+func InfoSha1Sum(torrent *TorrentFile) ([20]byte, error) {
 	info_bytes, err := bencode.Marshal(torrent.Info)
+	if err != nil {
+		return [20]byte{}, err
+	}
+	sum := sha1.Sum(info_bytes)
+	return sum, nil
+}
+
+func RequestTracker(torrent *TorrentFile, peerID [20]byte, port uint16) (TrackerResponse, error) {
+	sum, err := InfoSha1Sum(torrent)
 	if err != nil {
 		return TrackerResponse{}, err
 	}
-	sum := sha1.Sum(info_bytes)
 	params := url.Values{
 		"info_hash":  []string{string(sum[:])}, // []bytes 转 string 的惯例写法
 		"peer_id":    []string{string(peerID[:])},
