@@ -11,6 +11,15 @@ import (
 	"time"
 )
 
+type Client struct {
+	Conn       net.Conn
+	Choked     bool
+	Interested bool
+	Torrent    *TorrentFile
+	PeerID     [20]byte
+	Bitfield   []byte // tells us what pieces the peer have so that we can request
+}
+
 type Message_ID byte
 
 const (
@@ -23,6 +32,8 @@ const (
 	REQUEST        Message_ID = 6
 	PIECE          Message_ID = 7
 	CANCLE         Message_ID = 8
+
+	MaxBacklog int = 5
 )
 
 type Message struct {
@@ -55,9 +66,9 @@ func (m *Message) name() string {
 	}
 }
 
-func readMessage(conn net.Conn) (*Message, error) {
+func (c *Client) readMessage() (*Message, error) {
 	length_bytes := make([]byte, 4) // all later integer after handshake (not exactly) are encoded as four bytes big-endian
-	_, err := io.ReadFull(conn, length_bytes)
+	_, err := io.ReadFull(c.Conn, length_bytes)
 	if err != nil {
 		return nil, err
 	}
@@ -68,7 +79,7 @@ func readMessage(conn net.Conn) (*Message, error) {
 	}
 
 	message := make([]byte, length)
-	_, err = io.ReadFull(conn, message)
+	_, err = io.ReadFull(c.Conn, message)
 	if err != nil {
 		return nil, err
 	}
@@ -76,15 +87,6 @@ func readMessage(conn net.Conn) (*Message, error) {
 		ID:      Message_ID(message[0]),
 		Payload: message[1:],
 	}, nil
-}
-
-type Client struct {
-	Conn       net.Conn
-	Choked     bool
-	Interested bool
-	Torrent    *TorrentFile
-	PeerID     [20]byte
-	Bitfield   []byte
 }
 
 func NewClient(tf *TorrentFile, id [20]byte, peer Peer) (*Client, error) { // communicate with a single peer
@@ -106,7 +108,7 @@ func NewClient(tf *TorrentFile, id [20]byte, peer Peer) (*Client, error) { // co
 		return nil, err
 	}
 
-	message, err := readMessage(_client.Conn)
+	message, err := _client.readMessage()
 	if err != nil {
 		return nil, err
 	}
@@ -175,4 +177,75 @@ func (c *Client) handshake() ([]byte, error) {
 
 	log.Printf("Successfully complete handshake with %s", (peer_id[:]))
 	return peer_id, nil
+}
+
+func (c *Client) SendUnchoke() error {
+	message_buf := make([]byte, 5)
+	binary.BigEndian.PutUint32(message_buf[:4], 1)
+	message_buf[4] = byte(1)
+	_, err := c.Conn.Write(message_buf)
+	return err
+}
+
+func (c *Client) SendInterested() error {
+	message_buf := make([]byte, 5)
+	binary.BigEndian.PutUint32(message_buf[:4], 1)
+	message_buf[4] = byte(2)
+	_, err := c.Conn.Write(message_buf)
+	return err
+}
+
+func (c *Client) SendNotInterested() error {
+	message_buf := make([]byte, 5)
+	binary.BigEndian.PutUint32(message_buf[:4], 1)
+	message_buf[4] = byte(3)
+	_, err := c.Conn.Write(message_buf)
+	return err
+}
+
+func (c *Client) SendRequest(index, begin, length int) error {
+	message_buf := make([]byte, 4+1+3*4)
+	binary.BigEndian.PutUint32(message_buf[:4], 13)
+	message_buf[4] = byte(6)
+	binary.BigEndian.PutUint32(message_buf[5:9], uint32(index))
+	binary.BigEndian.PutUint32(message_buf[9:13], uint32(begin))
+	binary.BigEndian.PutUint32(message_buf[13:], uint32(length))
+	_, err := c.Conn.Write(message_buf)
+	return err
+}
+
+func (c *Client) SendHave(index int) error {
+	message_buf := make([]byte, 9)
+	binary.BigEndian.PutUint32(message_buf[:4], 5)
+	message_buf[4] = byte(4)
+	binary.BigEndian.PutUint32(message_buf[5:], uint32(index))
+	_, err := c.Conn.Write(message_buf)
+	return err
+}
+
+func (c *Client) CanRequest(piece *Piece) bool {
+	index := piece.Index
+	byte_index := index / 8
+	offset := index % 8
+	return c.Bitfield[byte_index]>>(7-offset)&1 != 0
+}
+
+func (c *Client) processMessage(message *Message) ([]byte, error) {
+	switch message.ID {
+	case CHOKE:
+		c.Choked = true
+	case UNCHOKE:
+		c.Choked = false
+	case HAVE:
+		index := binary.BigEndian.Uint32(message.Payload)
+		byte_index := index / 8
+		offset_within_byte := index % 8
+		if byte_index < 0 || int(byte_index) >= len(c.Bitfield) {
+			return nil, errors.New("wrong byte_index")
+		}
+		c.Bitfield[byte_index] |= 1 << uint(7-offset_within_byte)
+	case PIECE:
+		return message.Payload, nil
+	}
+	return nil, nil
 }
