@@ -61,7 +61,7 @@ func download(torrent_file_path string) ([]byte, error) {
 	num_pieces := int(math.Ceil(float64(tf.Info.Length) / float64(tf.Info.PieceLength)))
 	jobs := make(chan *Piece, num_pieces)
 	for i := 0; i < num_pieces; i++ {
-		var length int
+		var length int = tf.Info.PieceLength
 		if i == num_pieces-1 {
 			length = tf.Info.Length - (num_pieces-2)*tf.Info.PieceLength
 		}
@@ -73,10 +73,11 @@ func download(torrent_file_path string) ([]byte, error) {
 	tmp_result := make(chan *PieceProgress)
 
 	for _, peer := range all_peers {
-		go func() {
-			client, err := NewClient(&tf, id, peer)
+		go func(p Peer) {
+			client, err := NewClient(&tf, id, p)
 			if err != nil {
 				log.Println(err)
+				return
 			}
 
 			client.SendUnchoke()
@@ -96,6 +97,7 @@ func download(torrent_file_path string) ([]byte, error) {
 				// Download
 				for pp.Downloaded < job.Length {
 					if !pp.Clt.Choked {
+						// log.Println("not choked")
 						if pp.Backlog < MaxBacklog && pp.Requested < job.Length {
 							block_size := MaxRequestLength
 							if _block := job.Length - pp.Requested; _block < block_size {
@@ -113,6 +115,7 @@ func download(torrent_file_path string) ([]byte, error) {
 						}
 					}
 					message, err := pp.Clt.readMessage()
+					// log.Printf("got message type %s", message.name())
 					if err != nil {
 						log.Println(err)
 						continue
@@ -139,13 +142,20 @@ func download(torrent_file_path string) ([]byte, error) {
 				sum1 := sha1.Sum(pp.Buf)
 				sum2 := []byte(pp.Clt.Torrent.Info.Pieces[job.Index*20 : job.Index*20+20])
 				if !bytes.Equal(sum1[:], sum2) {
+					// log.Printf("pp requested %d", pp.Requested)
+					// log.Printf("pp downloaded %d", pp.Downloaded)
+					// log.Printf("pp index %d", pp.Index)
+					// log.Printf("pp length %d", pp.Length)
+					// log.Printf("pp backlog %d", pp.Backlog)
+					// log.Println(sum1)
+					// log.Println(sum2)
 					log.Println("failed check sum")
 					jobs <- job
 				} else {
 					tmp_result <- &pp
 				}
 			}
-		}()
+		}(peer)
 	}
 
 	// put together
@@ -159,7 +169,7 @@ func download(torrent_file_path string) ([]byte, error) {
 		num_done_piece++
 		// progress bar
 		percent := float64(num_done_piece) / float64(len(done_piece.Clt.Torrent.Info.Pieces)/20) * 100
-		log.Printf("%.2f downloaded ...", percent)
+		log.Printf("(%.2f) downloaded index %d ...", percent, done_piece.Index)
 	}
 
 	return total_buf, nil

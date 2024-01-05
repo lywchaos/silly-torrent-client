@@ -70,6 +70,7 @@ func (c *Client) readMessage() (*Message, error) {
 	length_bytes := make([]byte, 4) // all later integer after handshake (not exactly) are encoded as four bytes big-endian
 	_, err := io.ReadFull(c.Conn, length_bytes)
 	if err != nil {
+		log.Println(err)
 		return nil, err
 	}
 	length := binary.BigEndian.Uint32(length_bytes) // four bytes, hence uint32
@@ -81,6 +82,7 @@ func (c *Client) readMessage() (*Message, error) {
 	message := make([]byte, length)
 	_, err = io.ReadFull(c.Conn, message)
 	if err != nil {
+		log.Println(err)
 		return nil, err
 	}
 	return &Message{
@@ -92,6 +94,7 @@ func (c *Client) readMessage() (*Message, error) {
 func NewClient(tf *TorrentFile, id [20]byte, peer Peer) (*Client, error) { // communicate with a single peer
 	conn, err := net.DialTimeout("tcp", peer.String(), 15*time.Duration(time.Second))
 	if err != nil {
+		log.Println(err)
 		return nil, err
 	}
 	_client := &Client{
@@ -105,11 +108,13 @@ func NewClient(tf *TorrentFile, id [20]byte, peer Peer) (*Client, error) { // co
 
 	_, err = _client.handshake()
 	if err != nil {
+		log.Println(err)
 		return nil, err
 	}
 
 	message, err := _client.readMessage()
 	if err != nil {
+		log.Println(err)
 		return nil, err
 	}
 
@@ -126,6 +131,7 @@ func (c *Client) handshake() ([]byte, error) {
 	// timeout
 	err := c.Conn.SetDeadline(time.Now().Add(15 * time.Second))
 	if err != nil {
+		log.Println(err)
 		return nil, err
 	}
 	defer c.Conn.SetDeadline(time.Time{})
@@ -139,6 +145,7 @@ func (c *Client) handshake() ([]byte, error) {
 	cur += copy(handshake_message[cur:], make([]byte, 8)) // reserved bytes
 	sum, err := InfoSha1Sum(c.Torrent)
 	if err != nil {
+		log.Println(err)
 		return make([]byte, 0), err
 	}
 	cur += copy(handshake_message[cur:], sum[:])      // 20 bytes sha1 hash of the bencoded form of the info value
@@ -147,6 +154,7 @@ func (c *Client) handshake() ([]byte, error) {
 	// send handshake message
 	_, err = c.Conn.Write(handshake_message)
 	if err != nil {
+		log.Println(err)
 		return make([]byte, 0), err
 	}
 
@@ -154,6 +162,7 @@ func (c *Client) handshake() ([]byte, error) {
 	res_pstr_len := make([]byte, 1)
 	_, err = io.ReadFull(c.Conn, res_pstr_len)
 	if err != nil {
+		log.Println(err)
 		return make([]byte, 0), err
 	}
 	if int(res_pstr_len[0]) == 0 {
@@ -163,10 +172,12 @@ func (c *Client) handshake() ([]byte, error) {
 	res := make([]byte, len(pstr)+48)
 	_, err = io.ReadFull(c.Conn, res)
 	if err != nil {
+		log.Println(err)
 		return make([]byte, 0), err
 	}
 	info_sum, err := InfoSha1Sum(c.Torrent)
 	if err != nil {
+		log.Println(err)
 		return make([]byte, 0), err
 	}
 	if !bytes.Equal(res[len(pstr)+8:len(pstr)+28], info_sum[:]) {
