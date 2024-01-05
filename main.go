@@ -8,6 +8,7 @@ import (
 	"log"
 	"math"
 	"os"
+	"strings"
 )
 
 type Piece struct {
@@ -95,7 +96,11 @@ func download(torrent_file_path string) ([]byte, error) {
 				}
 
 				// Download
+				send_res := true
 				for pp.Downloaded < job.Length {
+					if !send_res {
+						break
+					}
 					if !pp.Clt.Choked {
 						// log.Println("not choked")
 						if pp.Backlog < MaxBacklog && pp.Requested < job.Length {
@@ -107,17 +112,37 @@ func download(torrent_file_path string) ([]byte, error) {
 
 							err := pp.Clt.SendRequest(job.Index, pp.Requested, block_size)
 							if err != nil {
-								log.Println(err)
+								log.Println(err.Error())
+								if strings.Contains(err.Error(), "broken pipe") {
+									jobs <- job
+									return
+									send_res = false
+									break
+								}
 								continue
+							}
+							if !send_res {
+								break
 							}
 							pp.Backlog++
 							pp.Requested += block_size
 						}
+						if !send_res {
+							break
+						}
+					}
+					if !send_res {
+						break
 					}
 					message, err := pp.Clt.readMessage()
 					// log.Printf("got message type %s", message.name())
 					if err != nil {
-						log.Println(err)
+						log.Println(err.Error())
+						if strings.Contains(err.Error(), "EOF") {
+							jobs <- job
+							return
+							break
+						}
 						continue
 					}
 					if message == nil {
