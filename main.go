@@ -64,6 +64,7 @@ func download(torrent_file_path string) ([]byte, error) {
 	jobs := make(chan *Piece, num_pieces)
 	for i := 0; i < num_pieces; i++ {
 		var length int = tf.Info.PieceLength
+		// log.Println(length) right 262144
 		if i == num_pieces-1 {
 			length = tf.Info.Length - (num_pieces-1)*tf.Info.PieceLength
 			log.Printf("last piece length is %d", length)
@@ -92,9 +93,10 @@ func download(torrent_file_path string) ([]byte, error) {
 				}
 
 				pp := PieceProgress{
-					Clt:   client,
-					Index: job.Index,
-					Buf:   make([]byte, job.Length),
+					Clt:    client,
+					Index:  job.Index,
+					Buf:    make([]byte, job.Length),
+					Length: job.Length,
 				}
 
 				// Download
@@ -110,7 +112,6 @@ func download(torrent_file_path string) ([]byte, error) {
 							if _block := job.Length - pp.Requested; _block < block_size {
 								block_size = _block
 							}
-							pp.Length = block_size
 
 							err := pp.Clt.SendRequest(job.Index, pp.Requested, block_size)
 							if err != nil {
@@ -167,7 +168,7 @@ func download(torrent_file_path string) ([]byte, error) {
 
 				// check sum
 				sum1 := sha1.Sum(pp.Buf)
-				sum2 := []byte(pp.Clt.Torrent.Info.Pieces[job.Index*20 : job.Index*20+20])
+				sum2 := []byte(pp.Clt.Torrent.Info.Pieces[pp.Index*20 : pp.Index*20+20])
 				if !bytes.Equal(sum1[:], sum2) {
 					// log.Printf("pp requested %d", pp.Requested)
 					// log.Printf("pp downloaded %d", pp.Downloaded)
@@ -190,6 +191,11 @@ func download(torrent_file_path string) ([]byte, error) {
 	num_done_piece := 0
 	for num_done_piece < num_pieces {
 		done_piece := <-tmp_result
+		log.Printf("done_piece requested %d", done_piece.Requested)
+		log.Printf("done_piece downloaded %d", done_piece.Downloaded)
+		log.Printf("done_piece index %d", done_piece.Index)
+		log.Printf("done_piece length %d", done_piece.Length)
+		log.Printf("done_piece backlog %d", done_piece.Backlog)
 		piece_index, piece_length := done_piece.Index, done_piece.Length
 		normal_piece_length := done_piece.Clt.Torrent.Info.PieceLength
 		copy(total_buf[piece_index*normal_piece_length:piece_index*normal_piece_length+piece_length], done_piece.Buf)
