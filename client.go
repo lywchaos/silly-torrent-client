@@ -118,6 +118,9 @@ func NewClient(tf *TorrentFile, id [20]byte, peer Peer) (*Client, error) { // co
 		return nil, err
 	}
 
+	if message == nil {
+		return nil, fmt.Errorf("expected BITFIELD as first message, got keepalive")
+	}
 	if message.ID != BITFIELD {
 		return nil, fmt.Errorf("expected BITFIELD as first message, got %s", message.name()) // vscode said that should prefer fmt.Errorf over errors.New(fmt.Sprintf)
 	}

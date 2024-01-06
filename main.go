@@ -116,8 +116,8 @@ func download(torrent_file_path string) ([]byte, error) {
 								if strings.Contains(err.Error(), "broken pipe") {
 									jobs <- job
 									return
-									send_res = false
-									break
+									// send_res = false
+									// break
 								}
 								continue
 							}
@@ -141,7 +141,7 @@ func download(torrent_file_path string) ([]byte, error) {
 						if strings.Contains(err.Error(), "EOF") {
 							jobs <- job
 							return
-							break
+							// break
 						}
 						continue
 					}
