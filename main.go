@@ -60,11 +60,13 @@ func download(torrent_file_path string) ([]byte, error) {
 	rand.Read(id[:])
 
 	num_pieces := int(math.Ceil(float64(tf.Info.Length) / float64(tf.Info.PieceLength)))
+	log.Printf("total num pieces is %d", num_pieces)
 	jobs := make(chan *Piece, num_pieces)
 	for i := 0; i < num_pieces; i++ {
 		var length int = tf.Info.PieceLength
 		if i == num_pieces-1 {
-			length = tf.Info.Length - (num_pieces-2)*tf.Info.PieceLength
+			length = tf.Info.Length - (num_pieces-1)*tf.Info.PieceLength
+			log.Printf("last piece length is %d", length)
 		}
 		jobs <- &Piece{
 			Index:  i,
